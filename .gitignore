@@ -1,0 +1,26 @@
+# Служебные каталоги (артефакты сессий/кэш линтера)
+.pi/
+.ruff_cache/
+__pycache__/
+*.pyc
+
+# Локальный кэш моделей, если когда-нибудь появится здесь
+hf-cache/
+
+# Персистентный кэш JIT-кернелов SGLang (том для /sgl-cache)
+sgl-cache/
+# Старое имя тома до переименования (коммит 6bf544d), каталог оставлен
+# root-owned как осиротевший; если снесёте -- строку можно удалить
+sglang-cache/
+.env
+
+# Сырой вывод модели и бенч-скрипты, работающие с локальными проектами
+results/**answers*/
+results/*answer*.txt
+results/summary.md
+results/pi-agent/
+bench-prog*.py
+bench-pi-agent.sh
+
+# Локальная шпаргалка
+.local-notes.md

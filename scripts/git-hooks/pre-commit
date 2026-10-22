@@ -1,0 +1,37 @@
+#!/bin/sh
+# Секрет-скан staged-контента: блокирует коммиты, в которых оказались
+# креды/токены (токены сервисов, креды в URL, приватные и ssh-ключи).
+# Дешёвый regex-only; обход осознанно: git commit --no-verify.
+# Включён через: git config core.hooksPath scripts/git-hooks
+
+patterns='[0-9]{8,11}:[A-Za-z0-9_-]{30,}'
+patterns="$patterns|ghp_[A-Za-z0-9]{15,}"
+patterns="$patterns|github_pat_[A-Za-z0-9_]{15,}"
+patterns="$patterns|gh[sopu]_[A-Za-z0-9]{15,}"
+patterns="$patterns|hf_[A-Za-z0-9]{25,}"
+patterns="$patterns|sk-[A-Za-z0-9_-]{15,}"
+patterns="$patterns|AKIA[0-9A-Z]{16}"
+patterns="$patterns|AIza[A-Za-z0-9_-]{30,}"
+patterns="$patterns|xox[baprs]-[A-Za-z0-9-]{10,}"
+patterns="$patterns|glpat-[A-Za-z0-9_-]{15,}"
+patterns="$patterns|eyJ[A-Za-z0-9_-]{15,}\.eyJ"
+patterns="$patterns|://[A-Za-z0-9_+.-]+:[A-Za-z0-9_+/=.%-]{5,}@"
+patterns="$patterns|BEGIN [A-Z ]*PRIVATE KEY"
+patterns="$patterns|ssh-(ed25519|rsa) AAAA"
+
+files=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$files" ] && exit 0
+
+hits=$(printf '%s\n' "$files" | xargs git grep --cached -I -n -E "$patterns" -- 2>/dev/null)
+
+if [ -n "$hits" ]; then
+  echo "pre-commit: в staged-контенте найдены секретоподобные строки:" >&2
+  printf '%s\n' "$hits" | sed 's/^/  /' >&2
+  echo >&2
+  echo "Заменить на плейсхолдеры (<REDACTED_TOKEN>, <DB_USER>:<DB_PASSWORD>) и/или" >&2
+  echo "не трекдать сырой вывод модели (.gitignore: results/prog-*-answers/)." >&2
+  echo "Обход осознанно: git commit --no-verify" >&2
+  exit 1
+fi
+
+exit 0

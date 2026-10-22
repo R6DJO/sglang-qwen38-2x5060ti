@@ -1,0 +1,118 @@
+---
+# SGLang: gittensor-model-hub/Qwen3.8-27B-NVFP4-RTX5090
+# + DSPARK-спекуляция (драфтер gittensor-model-hub/Qwen3.8-27B-DSpark-NVFP4)
+#
+# Железо: 2x RTX 5060 Ti 16GB (Blackwell sm_120) -> tensor parallel 2.
+#
+# ЕДИНСТВЕННЫЙ compose-файл: профиль задаётся env-файлом.
+#   docker compose up -d                                  # .env (DSPARK)
+#   docker compose --env-file profiles/baseline.env up -d # vision,192k,conc2
+#   docker compose --env-file profiles/longctx.env up -d  # 262k, 1 поток
+#   docker compose -p qwen38-dspark-test \
+#     --env-file profiles/dspark-test.env up -d           # песочница, 30001
+# (--env-file полностью ЗАМЕНЯЕТ .env, поэтому общие переменные
+#  -- образ, порт, HF-кэш -- продублированы в каждом профиле.)
+#
+# Конвенция переменных:
+#   LANGUAGE_MODEL_ONLY  true  = vision-off (+~45k токенов KV;
+#                                картинки/видео запросы упадут!)
+#                         false = vision включён (0.92GB x карту)
+#   SPEC_ARGS            пусто = без спекуляции; иначе ЦЕЛАЯ строка
+#                         --speculative-* флагов (примеры в dspark-test.env)
+#   ${VAR-дефолт} (без двоеточия): дефолт берётся, только если
+#   переменная НЕ задана; заданная пустая (SPEC_ARGS=) дефолт ОТКЛЮЧАЕТ.
+#
+# Проверить отрендеренную команду без запуска:
+#   docker compose --env-file profiles/baseline.env config
+
+services:
+  sglang:
+    image: ${SGLANG_IMAGE:-lmsysorg/sglang:dev-cu13}
+    container_name: ${CONTAINER_NAME:-sglang-qwen38-27b-nvfp4}
+    restart: unless-stopped
+    shm_size: "16gb"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "${SGLANG_PORT:-30000}:30000"
+    volumes:
+      - ${HF_CACHE_DIR:-./hf-cache}:/root/.cache/huggingface
+      # Персистентный кэш скомпилированных кернелов (triton/inductor/
+      # flashinfer-jit): переживает --force-recreate, рестарт без перекомпиляции
+      - ./sgl-cache:/sgl-cache
+    environment:
+      # (HF_HUB_ENABLE_HF_TRANSFER удалён: hf_transfer «not used anymore» в этом
+      #  huggingface_hub -- переменная не действует, только FutureWarning; для
+      #  быстрых загрузок -- HF_XET_HIGH_PERFORMANCE)
+      # Кэш JIT-кернелов (по умолчанию ~/.cache/sglang внутри контейнера --
+      # теряется при пересоздании; сюда входят triton/, jit/sm120f,
+      # inductor/, flashinfer/autotune)
+      - SGLANG_CACHE_DIR=/sgl-cache
+      # Triton-late-load watchdog (triton_load_watch): дефолтный порог 1.0 GB
+      # трещит при профиле 0.87 -- в момент late-loads (после high-watermark
+      # аллокатора) free ~0.84-0.88 GB. 0.8 глушит; сам OOM-риск не меняется
+      # (загрузка ядер с 0.84+ free комфортна, замерено 30.09).
+      - SGLANG_TRITON_LOAD_WARNING_THRESHOLD_GB=0.3
+      # Оптимизация mamba-слотов (cookbook Qwen3.8-27B): освобождает один
+      # слот на запрос (extra_buffer_lazy 4 -> 3). Значение задаётся в
+      # profiles/*.env, по умолчанию выключено.
+      - SGLANG_OPT_MAMBA_SKIP_DECODE_LOCK=${SGLANG_OPT_MAMBA_SKIP_DECODE_LOCK:-true}
+      # Auth-токен HF hub: huggingface_hub читает env-переменную (приоритет
+      # выше файла ~/.cache/huggingface/token). Источник: shell-окружение
+      # или profiles/*.env (задан в dspark-ctx144.env; переменная
+      # дополнительно экспортирована в zsh, поэтому попадает во все профили).
+      - HF_TOKEN=${HF_TOKEN:-}
+      # Раскомментируй при зависаниях NCCL на старте (consumer-платы без P2P):
+      # - NCCL_P2P_DISABLE=1
+      # - NCCL_DEBUG=WARN
+    # ПамЯть (v0.5.x): mem-fraction = бюджет "веса target+draft + KV".
+    # DSPARK-дефолт (0.87 + vision-off + mamba4 + prefill1024 + graph4):
+    # пул ~148k. Ниже ~0.73 -- рестарт-луп (веса съедают бюджет).
+    # Выше 0.88 -- риск "Disable DSpark draft cuda graph", спекуляция
+    # деградирует. Baseline/longctx без драфтера: пул ~229k / ~320k.
+    command: >-
+      sglang serve
+      --model-path ${MODEL_PATH:-gittensor-model-hub/Qwen3.8-27B-NVFP4-RTX5090}
+      --served-model-name ${SERVED_NAME:-qwen3.8-27b}
+      --trust-remote-code
+      --json-model-override-args
+      {\"language_model_only\":${LANGUAGE_MODEL_ONLY:-true}}
+      --tp-size 2
+      --host 0.0.0.0
+      --port 30000
+      --attention-backend ${ATTENTION_BACKEND:-flashinfer}
+      --kv-cache-dtype ${KV_CACHE_DTYPE:-fp8_e4m3}
+      --context-length ${CONTEXT_LENGTH:-145000}
+      --chunked-prefill-size ${PREFILL_CHUNK:-1024}
+      --mamba-ssm-dtype bfloat16
+      --mamba-radix-cache-strategy extra_buffer_lazy
+      --max-mamba-cache-size ${MAMBA_CACHE:-8}
+      --mem-fraction-static ${MEM_FRACTION:-0.875}
+      --max-running-requests ${MAX_RUNNING:-1}
+      --cuda-graph-max-bs-decode ${GRAPH_BS:-1}
+      --cuda-graph-max-bs-prefill ${GRAPH_BS:-1}
+      --disable-custom-all-reduce
+      ${EXTRA_ARGS-}
+      ${SPEC_ARGS---speculative-algorithm DSPARK
+      --speculative-draft-model-path
+      gittensor-model-hub/Qwen3.8-27B-DSpark-NVFP4
+      --speculative-dspark-block-size 7
+      --speculative-draft-model-quantization modelopt_fp4}
+      --reasoning-parser qwen3
+      --tool-call-parser qwen3_coder
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:30000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      # Обе модели в кэше: загрузка весов + CUDA-графы ~3-5 мин
+      start_period: 15m

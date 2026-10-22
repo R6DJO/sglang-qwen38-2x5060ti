@@ -1,0 +1,54 @@
+{
+  "url": "http://localhost:30000",
+  "model": "qwen3.8-27b",
+  "runs": [
+    {
+      "name": "warmup",
+      "completion_tokens": 44,
+      "thinking_tokens": 26,
+      "ttft_s": 1.64,
+      "decode_tok_s": 41.7,
+      "e2e_tok_s": 16.5,
+      "finish": "stop",
+      "answer_head": "\n\nТокио",
+      "answer_len_chars": 7,
+      "in_stats": false
+    },
+    {
+      "name": "project-analysis",
+      "completion_tokens": 1024,
+      "thinking_tokens": 537,
+      "ttft_s": 2.79,
+      "decode_tok_s": 41.7,
+      "e2e_tok_s": 37.5,
+      "finish": "length",
+      "answer_head": "",
+      "answer_len_chars": 0,
+      "in_stats": true
+    },
+    {
+      "name": "algo-code",
+      "completion_tokens": 1024,
+      "thinking_tokens": 658,
+      "ttft_s": 0.28,
+      "decode_tok_s": 42.1,
+      "e2e_tok_s": 41.7,
+      "finish": "length",
+      "answer_head": "",
+      "answer_len_chars": 0,
+      "in_stats": true
+    },
+    {
+      "name": "math-logic",
+      "completion_tokens": 1024,
+      "thinking_tokens": 551,
+      "ttft_s": 0.3,
+      "decode_tok_s": 42.1,
+      "e2e_tok_s": 41.7,
+      "finish": "length",
+      "answer_head": "",
+      "answer_len_chars": 0,
+      "in_stats": true
+    }
+  ]
+}
